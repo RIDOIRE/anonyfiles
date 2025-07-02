@@ -1,0 +1,85 @@
+version: '3.8'
+
+# Définition des services (conteneurs) de l'application
+services:
+  # 1. Le service Backend (API en Python/FastAPI)
+  api:
+    # L'image sera construite à partir des instructions ci-dessous
+    build:
+      context: .https://github.com/RIDOIRE/anonyfiles/tree/main
+      # Utilise un Dockerfile "en ligne" pour éviter de modifier le dépôt original
+      dockerfile_inline: |
+        FROM python:3.11-slim
+        WORKDIR /app
+        # Copier uniquement les fichiers nécessaires pour l'API
+        COPY ./anonyfiles_api/requirements.txt .
+        # Installer les dépendances Python
+        RUN pip install --no-cache-dir -r requirements.txt
+        # Copier le reste du code de l'API
+        COPY ./anonyfiles_api .
+        # Commande pour lancer l'API avec uvicorn
+        CMD ["uvicorn", "anonyfiles_api.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    
+    # Nom du conteneur, Coolify peut le surcharger mais c'est une bonne pratique
+    container_name: anonyfiles-api
+    
+    # Redémarre automatiquement le conteneur en cas d'échec
+    restart: unless-stopped
+    
+    # Lier les dossiers de stockage à des volumes persistants
+    volumes:
+      - anonyfiles-uploads:/app/uploads
+      - anonyfiles-zips:/app/zips
+      
+    # Les ports ne sont pas exposés à l'extérieur. Le frontend y accède par le réseau interne de Docker.
+    # Le port '8000' est implicitement disponible pour les autres services.
+    
+    # Coolify gère le réseau, mais on s'assure qu'il est sur le même réseau que le frontend.
+    networks:
+      - anonyfiles-net
+
+  # 2. Le service Frontend (Application en Next.js)
+  frontend:
+    # Construit l'image en utilisant le Dockerfile existant à la racine du projet
+    build:
+      context: .https://github.com/RIDOIRE/anonyfiles/tree/main
+      dockerfile: Dockerfile
+      
+    container_name: anonyfiles-frontend
+    restart: unless-stopped
+    
+    # Ce service dépend du service 'api'. Docker Compose s'assurera que 'api' démarre avant 'frontend'.
+    depends_on:
+      - api
+      
+    # Variables d'environnement nécessaires pour le frontend
+    environment:
+      # L'URL de l'API. 'api' est le nom du service, Docker le résout en l'IP interne du conteneur de l'API.
+      - API_URL=http://api:8000
+      # L'URL publique de votre application. A MODIFIER !
+      - APP_URL=https://anonyfiles.navoti.duckdns.org 
+      # Les autres variables d'environnement pour Anonyfiles
+      - UPLOAD_DIR=/app/uploads
+      - ZIP_DIR=/app/zips
+      - MAX_FILE_SIZE_IN_MB=100
+      - MAX_FILES_PER_UPLOAD=10
+      - DEFAULT_EXPIRATION=1440
+      - CRON_CLEAN_SCHEDULE="0 * * * *"
+      
+    # Le port 3000 sera exposé au proxy de Coolify
+    ports:
+      - "3000"
+      
+    networks:
+      - anonyfiles-net
+
+# Définition des volumes persistants pour stocker les fichiers
+# Coolify les créera sur le serveur hôte.
+volumes:
+  anonyfiles-uploads:
+  anonyfiles-zips:
+
+# Définition du réseau partagé entre les conteneurs
+networks:
+  anonyfiles-net:
+    driver: bridge
