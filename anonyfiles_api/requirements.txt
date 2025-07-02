@@ -10,3 +10,4 @@ aiofiles
 PyMuPDF
 slowapi>=0.1.9
 python-json-logger
+aiofiles
